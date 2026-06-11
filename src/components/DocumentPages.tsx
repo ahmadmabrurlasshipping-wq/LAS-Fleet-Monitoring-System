@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { VesselDocument, CrewDocument, Vessel, CrewMember } from '../types';
+import firebaseConfig from '../../firebase-applet-config.json';
 
 interface DocumentPagesProps {
   vesselDocs: VesselDocument[];
@@ -67,7 +68,7 @@ export const DocumentPages: React.FC<DocumentPagesProps> = ({
     try {
       const tokenClient = google.accounts.oauth2.initTokenClient({
         client_id: clientId,
-        scope: 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.metadata.readonly',
+        scope: 'https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.metadata.readonly',
         callback: (tokenResponse: any) => {
           if (tokenResponse.error) {
             toast(`Gagal autentikasi Google: ${tokenResponse.error}`, 'd');
@@ -106,9 +107,12 @@ export const DocumentPages: React.FC<DocumentPagesProps> = ({
           ? window.location.ancestorOrigins[window.location.ancestorOrigins.length - 1]
           : window.location.origin;
 
+        const apiKey = (import.meta as any).env.VITE_GOOGLE_API_KEY || firebaseConfig.apiKey || '';
+
         const picker = pickerBuilder
           .addView(google.picker.ViewId.DOCS)
           .setOAuthToken(token)
+          .setDeveloperKey(apiKey)
           .setOrigin(origin)
           .setCallback((data: any) => {
             if (data.action === google.picker.Action.PICKED) {

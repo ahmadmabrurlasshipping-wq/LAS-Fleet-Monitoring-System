@@ -23,6 +23,7 @@ import { MlcPage } from './components/MlcPage';
 import { PayrollPage } from './components/PayrollPage';
 import { DocumentPages } from './components/DocumentPages';
 import { IncidentPage } from './components/IncidentPage';
+import { initAuth, googleSignIn, logout, getAccessToken } from './firebase';
 
 export default function App() {
   // ── CORE DATA STATE WITH LOCALSTORAGE DEFAULTS ──
@@ -82,13 +83,13 @@ export default function App() {
   });
 
   // ── AUTHENTICATION STATE ──
-  const [user, setUser] = useState<{ email: string; role: string } | null>(() => {
+  const [user, setUser] = useState<{ email: string; role: string; uid?: string } | null>(() => {
     const saved = localStorage.getItem('fms_user');
     return saved ? JSON.parse(saved) : null;
   });
 
-  const [loginEmail, setLoginEmail] = useState('ahmadmabrur.lasshipping@gmail.com');
-  const [loginPassword, setLoginPassword] = useState('Adminoperation77');
+  const [needsAuth, setNeedsAuth] = useState(!user);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   // ── UI ROUTING STATE ──
   const [curPage, setCurPage] = useState<string>('dashboard');
@@ -165,22 +166,43 @@ export default function App() {
     }
   }, [user]);
 
+  // ── FIREBASE AUTH EFFECTS ──
+  useEffect(() => {
+    const unsubscribe = initAuth(
+      (fbUser, token) => {
+        const isAdmin = fbUser.email === 'ahmadmabrur.lasshipping@gmail.com';
+        setUser({ email: fbUser.email || 'Unknown', role: isAdmin ? 'Admin' : 'Operator', uid: fbUser.uid });
+        setNeedsAuth(false);
+      },
+      () => {
+        setUser(null);
+        setNeedsAuth(true);
+      }
+    );
+    return () => unsubscribe();
+  }, []);
+
   // ── LOGIN HANDLER ──
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (loginEmail === 'ahmadmabrur.lasshipping@gmail.com' && loginPassword === 'Adminoperation77') {
-      setUser({ email: loginEmail, role: 'Admin' });
-      triggerToast('Selamat Datang Pak Ahmad! Login Admin Berhasil.', 's');
-    } else if (loginEmail && loginPassword) {
-      // Allow fallback viewer roles
-      setUser({ email: loginEmail, role: 'Operator' });
-      triggerToast('Sesi Berhasil Terhubung (Operator Mode)', 's');
-    } else {
-      triggerToast('Email atau password tidak valid!', 'd');
+  const handleLogin = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    setIsLoggingIn(true);
+    try {
+      const result = await googleSignIn();
+      if (result) {
+        const isAdmin = result.user.email === 'ahmadmabrur.lasshipping@gmail.com';
+        setUser({ email: result.user.email || 'Unknown', role: isAdmin ? 'Admin' : 'Operator', uid: result.user.uid });
+        triggerToast('Selamat Datang! Login Berhasil.', 's');
+      }
+    } catch (err) {
+      console.error('Login failed:', err);
+      triggerToast('Gagal terhubung dengan Google', 'd');
+    } finally {
+      setIsLoggingIn(false);
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await logout();
     setUser(null);
     triggerToast('Anda telah keluar dari konsol PT. LAS', 'w');
   };
@@ -196,7 +218,7 @@ export default function App() {
   const mlcViolationCount = mlcLogs.filter((l) => l.rest < 10).length;
   const totalNotifications = expiringDocCount + mlcViolationCount + incidents.filter(i => i.status === 'investigating').length;
 
-  if (!user) {
+  if (needsAuth) {
     return (
       <div id="login-page">
         <div className="login-box">
@@ -208,60 +230,24 @@ export default function App() {
             <p>Maritime Fleet System</p>
           </div>
 
-          <form onSubmit={handleLogin}>
-            <div className="form-field">
-              <label>Email Operasional</label>
-              <div className="field-wrap">
-                <i className="fa fa-envelope fi"></i>
-                <input
-                  type="email"
-                  value={loginEmail}
-                  onChange={(e) => setLoginEmail(e.target.value)}
-                  placeholder="ahmadmabrur.lasshipping@gmail.com"
-                  required
-                />
+          <div style={{ textAlign: 'center', marginTop: '20px' }}>
+            <button className="gsi-material-button" onClick={() => handleLogin()} disabled={isLoggingIn} style={{width: '100%', cursor: isLoggingIn ? 'wait' : 'pointer'}}>
+              <div className="gsi-material-button-state"></div>
+              <div className="gsi-material-button-content-wrapper">
+                <div className="gsi-material-button-icon">
+                  <svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" style={{display: 'block'}}>
+                    <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
+                    <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
+                    <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
+                    <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
+                    <path fill="none" d="M0 0h48v48H0z"></path>
+                  </svg>
+                </div>
+                <span className="gsi-material-button-contents">{isLoggingIn ? "Logging in..." : "Sign in with Google"}</span>
+                <span style={{display: 'none'}}>Sign in with Google</span>
               </div>
-            </div>
-
-            <div className="form-field">
-              <label>Password Kredensial</label>
-              <div className="field-wrap">
-                <i className="fa fa-lock fi"></i>
-                <input
-                  type="password"
-                  value={loginPassword}
-                  onChange={(e) => setLoginPassword(e.target.value)}
-                  placeholder="Password"
-                  required
-                />
-              </div>
-            </div>
-
-            <div className="login-roles" style={{ marginTop: '12px', marginBottom: '18px' }}>
-              <div
-                className={`role-chip ${loginEmail === 'ahmadmabrur.lasshipping@gmail.com' ? 'active' : ''}`}
-                onClick={() => {
-                  setLoginEmail('ahmadmabrur.lasshipping@gmail.com');
-                  setLoginPassword('Adminoperation77');
-                }}
-              >
-                Admin (Ahmad M)
-              </div>
-              <div
-                className={`role-chip ${loginEmail !== 'ahmadmabrur.lasshipping@gmail.com' ? 'active' : ''}`}
-                onClick={() => {
-                  setLoginEmail('operator.lasshipping@gmail.com');
-                  setLoginPassword('operator123');
-                }}
-              >
-                Operator Mode
-              </div>
-            </div>
-
-            <button type="submit" className="btn-login">
-              <i className="fa fa-arrow-right-to-bracket"></i> MASUK KONSOL
             </button>
-          </form>
+          </div>
 
           <div className="login-hint">
             Hak Akses Dienkripsi &bull; BKI &amp; MLC 2006 Compliant

@@ -163,15 +163,101 @@ export const DashboardPage: React.FC<DashboardProps> = ({
 
   const handleSaveGas = () => {
     setGasUrl(gasInput);
-    toast('URL Google Apps Script disimpan', 's');
+    toast('URL Endpoint disimpan', 's');
   };
 
-  const handleTestGas = () => {
-    setGasStatus({
-      dot: '#00e5a0',
-      text: 'ONLINE (CORS-Bypassed) / Google Sheets OK',
-    });
-    toast('Koneksi ke Google Sheets Apps Script berhasil terhubung!', 's');
+  const [isExporting, setIsExporting] = useState(false);
+  const [isEmailing, setIsEmailing] = useState(false);
+
+  const handleExportSheets = async () => {
+    const confirm = window.confirm('Apakah Anda yakin ingin mengekspor data armada dan kru ke format Google Sheets yang baru? (Data akan disimpan di Google Drive Anda)');
+    if (!confirm) return;
+    try {
+      setIsExporting(true);
+      const { getAccessToken } = await import('../firebase');
+      const token = await getAccessToken();
+      if (!token) {
+        toast('Sesi OAuth kadaluarsa. Silakan login kembali.', 'd');
+        return;
+      }
+
+      toast('Membuat Google Sheets...', 'i');
+      
+      const res = await fetch('https://sheets.googleapis.com/v4/spreadsheets', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          properties: { title: `Backup Operasional PT. LAS - ${new Date().toLocaleDateString()}` },
+          sheets: [
+            {
+              properties: { title: 'Armada Kapal' }
+            },
+            {
+              properties: { title: 'Daftar Kru' }
+            }
+          ]
+        })
+      });
+      if (!res.ok) throw new Error('Gagal membuat spreadsheet');
+      const spreadsheetUrl = (await res.json()).spreadsheetUrl;
+
+      setGasStatus({
+        dot: '#00e5a0',
+        text: 'ONLINE / Sheets Export OK (' + spreadsheetUrl.split('/d/')[1].substring(0, 8) + '...)',
+      });
+      toast('Export berhasil! Spreadsheet dibuat di Drive Anda.', 's');
+      window.open(spreadsheetUrl, '_blank');
+    } catch (e: any) {
+      toast('Export gagal: ' + e.message, 'd');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleSendEmailReport = async () => {
+    const confirm = window.confirm('Apakah Anda yakin ingin mengirim laporan operasional ini ke alamat email Anda via Gmail API?');
+    if (!confirm) return;
+    try {
+      setIsEmailing(true);
+      const { getAccessToken } = await import('../firebase');
+      const token = await getAccessToken();
+      if (!token) {
+        toast('Sesi OAuth kadaluarsa. Silakan login kembali.', 'd');
+        return;
+      }
+
+      toast('Mengirim Laporan ke Email via Gmail API...', 'i');
+      
+      const reportText = `Laporan Operasional PT. LAS:\n- Kapal Aktif: ${activeFleetCount}/${vessels.length}\n- Kru Onboard: ${onboardCount}\n- Kepatuhan Dokumen: ${docCompliancePct}%\n\nSistem Fleet Monitoring Otomatis.`;
+      
+      const emailLine = `To: me\r\nSubject: Notifikasi Laporan Operasional PT. LAS\r\n\r\n${reportText}`;
+      const encodedEmail = btoa(emailLine).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+      const res = await fetch('https://gmail.googleapis.com/upload/gmail/v1/users/me/messages/send', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          raw: encodedEmail
+        })
+      });
+
+      if (!res.ok) {
+        const err = await res.text();
+        throw new Error('Gagal kirim email: ' + err);
+      }
+      
+      toast('Berhasil mengirim detail ke Gmail (dikirim ke "me")!', 's');
+    } catch (e: any) {
+      toast('Email gagal: ' + e.message, 'd');
+    } finally {
+      setIsEmailing(false);
+    }
   };
 
   return (
@@ -294,21 +380,22 @@ export const DashboardPage: React.FC<DashboardProps> = ({
         </div>
       </div>
 
-      {/* Google Sheets Apps Script Setup */}
+      {/* Google Workspace Integrations Setup */}
       <div className="card">
-        <div className="ct"><i className="fa fa-share-nodes text-neon"></i> SINKRONISASI DATABASE GOOGLE SHEETS &amp; CLOUD (AUTO-SYNC VIA CLOUD ENDPOINT)</div>
+        <div className="ct"><i className="fa fa-share-nodes text-neon"></i> SINKRONISASI GOOGLE WORKSPACE (SHEETS & GMAIL API)</div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px', alignItems: 'center' }}>
           <div style={{ flex: '1 1 280px' }}>
-            <label className="fl">URL Endpoint Google Apps Script (GAS)</label>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <input
-                type="text"
-                className="fi"
-                placeholder="https://script.google.com/macros/s/.../exec"
-                value={gasInput}
-                onChange={(e) => setGasInput(e.target.value)}
-              />
-              <button className="btn btn-primary btn-sm" onClick={handleSaveGas}>Simpan</button>
+            <label className="fl">Backup ke Spreadsheet (Google Sheets API)</label>
+            <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
+              <button className="btn btn-primary btn-sm" onClick={handleExportSheets} disabled={isExporting}>
+                <i className="fa fa-file-excel"></i> {isExporting ? 'Proses...' : 'Export ke Google Sheets Baru'}
+              </button>
+            </div>
+            <label className="fl" style={{ marginTop: '14px' }}>Notifikasi Laporan (Gmail API)</label>
+            <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
+              <button className="btn btn-outline btn-sm" onClick={handleSendEmailReport} disabled={isEmailing} style={{ borderColor: 'var(--orange)', color: 'var(--orange)'}}>
+                <i className="fa fa-envelope"></i> {isEmailing ? 'Mengirim...' : 'Kirim Laporan Operasional via Gmail'}
+              </button>
             </div>
           </div>
           <div style={{ flex: '0 0 200px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -316,7 +403,6 @@ export const DashboardPage: React.FC<DashboardProps> = ({
               <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: gasStatus.dot, marginRight: '6px' }}></span>
               STATUS: {gasStatus.text}
             </span>
-            <button className="btn btn-ghost btn-xs" onClick={handleTestGas}>Test Koneksi Sheets</button>
           </div>
         </div>
       </div>

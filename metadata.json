@@ -1,0 +1,6 @@
+{
+  "name": "LAS Fleet Monitoring System",
+  "description": "Production-ready Maritime ERP and Fleet Monitoring System for PT Pelayaran Lestari Abadi Serasi",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
